@@ -1,15 +1,17 @@
-version: "3.9"
-
 services:
   controller:
-    build: .
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
     command: ./controller
     container_name: controller
     ports:
       - "8080:8080"
 
   node1:
-    build: .
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
     command: ./node
     environment:
       - NODE_ID=1
@@ -18,7 +20,9 @@ services:
       - controller
 
   node2:
-    build: .
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
     command: ./node
     environment:
       - NODE_ID=2
