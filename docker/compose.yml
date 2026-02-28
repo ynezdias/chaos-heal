@@ -5,15 +5,23 @@ services:
     build: .
     command: ./controller
     container_name: controller
+    ports:
+      - "8080:8080"
 
   node1:
     build: .
+    command: ./node
     environment:
       - NODE_ID=1
-    container_name: node1
+      - CONTROLLER_URL=http://controller:8080
+    depends_on:
+      - controller
 
   node2:
     build: .
+    command: ./node
     environment:
       - NODE_ID=2
-    container_name: node2
+      - CONTROLLER_URL=http://controller:8080
+    depends_on:
+      - controller
