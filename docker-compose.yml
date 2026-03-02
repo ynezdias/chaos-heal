@@ -1,31 +1,26 @@
 services:
-  controller:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
-    command: ./controller
-    container_name: controller
-    ports:
-      - "8080:8080"
-
   node1:
     build:
       context: .
       dockerfile: docker/Dockerfile
     command: ./node
+    container_name: node1
     environment:
-      - NODE_ID=1
-      - CONTROLLER_URL=http://controller:8080
-    depends_on:
-      - controller
+      - NODE_ID=Node-1
+      - PORT=50051
+      - PEERS=node2:50052
+    ports:
+      - "50051:50051"
 
   node2:
     build:
       context: .
       dockerfile: docker/Dockerfile
     command: ./node
+    container_name: node2
     environment:
-      - NODE_ID=2
-      - CONTROLLER_URL=http://controller:8080
-    depends_on:
-      - controller
+      - NODE_ID=Node-2
+      - PORT=50052
+      - PEERS=node1:50051
+    ports:
+      - "50052:50052"
