@@ -1,67 +1,104 @@
 package main
 
 import (
-	"fmt"
+	"context"
 	"log"
-	"net/http"
+	"net"
 	"sync"
 	"time"
+
+	pb "chaos-heal/proto" // adjust if your module path differs
+
+	"google.golang.org/grpc"
+)
+
+type NodeStatus string
+
+const (
+	Alive     NodeStatus = "ALIVE"
+	Suspected NodeStatus = "SUSPECTED"
+	Dead      NodeStatus = "DEAD"
 )
 
 type NodeInfo struct {
-	LastSeen time.Time
-	Status   string
+	LastHeartbeat time.Time
+	Status        NodeStatus
+}
+
+type server struct {
+	pb.UnimplementedHeartbeatServiceServer
 }
 
 var (
-	nodes   = make(map[string]*NodeInfo)
-	mu      sync.Mutex
-	timeout = 5 * time.Second
+	nodes = make(map[string]*NodeInfo)
+	mu    sync.Mutex
 )
 
-func heartbeatHandler(w http.ResponseWriter, r *http.Request) {
-	id := r.URL.Query().Get("id")
-	if id == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
+func (s *server) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.HeartbeatResponse, error) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	if _, exists := nodes[id]; !exists {
-		nodes[id] = &NodeInfo{}
+	nodeID := req.NodeId
+
+	info, exists := nodes[nodeID]
+	if !exists {
+		info = &NodeInfo{}
+		nodes[nodeID] = info
+		log.Printf("[Controller] New node registered: %s\n", nodeID)
 	}
 
-	nodes[id].LastSeen = time.Now()
-	nodes[id].Status = "Alive"
+	previousStatus := info.Status
 
-	fmt.Printf("[Controller] Heartbeat received from Node-%s\n", id)
+	info.LastHeartbeat = time.Now()
+	info.Status = Alive
+
+	if previousStatus != Alive {
+		log.Printf("[Controller] %s recovered -> ALIVE\n", nodeID)
+	} else {
+		log.Printf("[Controller] Heartbeat received from %s\n", nodeID)
+	}
+
+	return &pb.HeartbeatResponse{Ack: true}, nil
 }
 
-func monitorFailures() {
-	for {
-		time.Sleep(2 * time.Second)
+func startFailureDetector() {
+	go func() {
+		for {
+			time.Sleep(2 * time.Second)
 
-		mu.Lock()
-		for id, info := range nodes {
-			if time.Since(info.LastSeen) > timeout {
-				if info.Status != "Suspected" {
-					info.Status = "Suspected"
-					fmt.Printf("[Controller] Node-%s suspected FAILED\n", id)
+			mu.Lock()
+			for nodeID, info := range nodes {
+				elapsed := time.Since(info.LastHeartbeat)
+
+				switch {
+				case elapsed > 10*time.Second && info.Status != Dead:
+					info.Status = Dead
+					log.Printf("[Controller] %s marked DEAD\n", nodeID)
+
+				case elapsed > 5*time.Second && info.Status == Alive:
+					info.Status = Suspected
+					log.Printf("[Controller] %s marked SUSPECTED\n", nodeID)
 				}
 			}
+			mu.Unlock()
 		}
-		mu.Unlock()
-	}
+	}()
 }
 
 func main() {
-	fmt.Println("[Controller] Starting...")
+	lis, err := net.Listen("tcp", ":50051")
+	if err != nil {
+		log.Fatalf("failed to listen: %v", err)
+	}
 
-	http.HandleFunc("/heartbeat", heartbeatHandler)
+	grpcServer := grpc.NewServer()
+	pb.RegisterHeartbeatServiceServer(grpcServer, &server{})
 
-	go monitorFailures()
+	startFailureDetector()
 
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Println("[Controller] Server started on port 50051")
+
+	if err := grpcServer.Serve(lis); err != nil {
+		log.Fatalf("failed to serve: %v", err)
+	}
 }
