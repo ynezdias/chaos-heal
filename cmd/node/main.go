@@ -30,3 +30,12 @@ func main() {
 		fmt.Printf("[Node-%s] Heartbeat sent\n", nodeID)
 	}
 }
+type PeerInfo struct {
+	LastHeartbeat time.Time
+	Status        string
+}
+
+var (
+	peers = make(map[string]*PeerInfo)
+	mu    sync.Mutex
+)
